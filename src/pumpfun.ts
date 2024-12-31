@@ -40,6 +40,7 @@ import {
   sendTx,
 } from "./util";
 import { PumpFun, IDL } from "./IDL";
+
 const PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
 const MPL_TOKEN_METADATA_PROGRAM_ID =
   "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
@@ -51,6 +52,11 @@ export const METADATA_SEED = "metadata";
 
 export const DEFAULT_DECIMALS = 6;
 
+export type BuyOptions = {
+  createATA?: boolean;
+  bondingCurve?: string;
+};
+
 export class PumpFunSDK {
   public program: Program<PumpFun>;
   public connection: Connection;
@@ -59,7 +65,7 @@ export class PumpFunSDK {
     this.connection = this.program.provider.connection;
   }
 
-  async createAndBuy (
+  async createAndBuy(
     creator: Keypair,
     mint: Keypair,
     createTokenMetadata: CreateTokenMetadata,
@@ -212,7 +218,8 @@ export class PumpFunSDK {
     mint: PublicKey,
     buyAmountSol: bigint,
     slippageBasisPoints: bigint = 500n,
-    commitment: Commitment = DEFAULT_COMMITMENT
+    commitment: Commitment = DEFAULT_COMMITMENT,
+    options?: BuyOptions
   ) {
     let bondingCurveAccount = await this.getBondingCurveAccount(
       mint,
@@ -235,7 +242,9 @@ export class PumpFunSDK {
       mint,
       globalAccount.feeRecipient,
       buyAmount,
-      buyAmountWithSlippage
+      buyAmountWithSlippage,
+      commitment,
+      options?.createATA ?? true
     );
   }
 
@@ -246,7 +255,8 @@ export class PumpFunSDK {
     feeRecipient: PublicKey,
     amount: bigint,
     solAmount: bigint,
-    commitment: Commitment = DEFAULT_COMMITMENT
+    commitment: Commitment = DEFAULT_COMMITMENT,
+    createATA: boolean = true
   ) {
     const associatedBondingCurve = await getAssociatedTokenAddress(
       mint,
@@ -258,17 +268,19 @@ export class PumpFunSDK {
 
     let transaction = new Transaction();
 
-    try {
-      await getAccount(this.connection, associatedUser, commitment);
-    } catch (e) {
-      transaction.add(
-        createAssociatedTokenAccountInstruction(
-          buyer,
-          associatedUser,
-          buyer,
-          mint
-        )
-      );
+    if (createATA) {
+      try {
+        await getAccount(this.connection, associatedUser, commitment);
+      } catch (e) {
+        transaction.add(
+          createAssociatedTokenAccountInstruction(
+            buyer,
+            associatedUser,
+            buyer,
+            mint
+          )
+        );
+      }
     }
 
     transaction.add(
@@ -395,11 +407,11 @@ export class PumpFunSDK {
   async createTokenMetadata(create: CreateTokenMetadata) {
     // Validate file
     if (!(create.file instanceof Blob)) {
-        throw new Error('File must be a Blob or File object');
+      throw new Error("File must be a Blob or File object");
     }
 
     let formData = new FormData();
-    formData.append("file", create.file, 'image.png'); // Add filename
+    formData.append("file", create.file, "image.png"); // Add filename
     formData.append("name", create.name);
     formData.append("symbol", create.symbol);
     formData.append("description", create.description);
@@ -409,40 +421,42 @@ export class PumpFunSDK {
     formData.append("showName", "true");
 
     try {
-        const request = await fetch("https://pump.fun/api/ipfs", {
-            method: "POST",
-            headers: {
-                'Accept': 'application/json',
-            },
-            body: formData,
-            credentials: 'same-origin'
-        });
+      const request = await fetch("https://pump.fun/api/ipfs", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+        },
+        body: formData,
+        credentials: "same-origin",
+      });
 
-        if (request.status === 500) {
-            // Try to get more error details
-            const errorText = await request.text();
-            throw new Error(`Server error (500): ${errorText || 'No error details available'}`);
-        }
+      if (request.status === 500) {
+        // Try to get more error details
+        const errorText = await request.text();
+        throw new Error(
+          `Server error (500): ${errorText || "No error details available"}`
+        );
+      }
 
-        if (!request.ok) {
-            throw new Error(`HTTP error! status: ${request.status}`);
-        }
+      if (!request.ok) {
+        throw new Error(`HTTP error! status: ${request.status}`);
+      }
 
-        const responseText = await request.text();
-        if (!responseText) {
-            throw new Error('Empty response received from server');
-        }
+      const responseText = await request.text();
+      if (!responseText) {
+        throw new Error("Empty response received from server");
+      }
 
-        try {
-            return JSON.parse(responseText);
-        } catch (e) {
-            throw new Error(`Invalid JSON response: ${responseText}`);
-        }
+      try {
+        return JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Invalid JSON response: ${responseText}`);
+      }
     } catch (error) {
-        console.error('Error in createTokenMetadata:', error);
-        throw error;
+      console.error("Error in createTokenMetadata:", error);
+      throw error;
     }
-}
+  }
   //EVENTS
   addEventListener<T extends PumpFunEventType>(
     eventType: T,
